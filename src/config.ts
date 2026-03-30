@@ -13,6 +13,7 @@ interface Config {
   defaultModel: string;
   defaultProvider: string;
   theme: string;
+  serverUrl: string;
 }
 
 const defaultConfig: Config = {
@@ -20,6 +21,7 @@ const defaultConfig: Config = {
   defaultModel: "kimi-k2.5",
   defaultProvider: "nvidia",
   theme: "dark",
+  serverUrl: "ws://100.118.174.102:5666",
 };
 
 function ensureConfigDir(): void {
@@ -82,5 +84,16 @@ export function getDefaultModel(): string {
 export function setDefaultModel(model: string): void {
   const config = loadConfig();
   config.defaultModel = model;
+  saveConfig(config);
+}
+
+export function getServerUrl(): string {
+  const config = loadConfig();
+  return config.serverUrl;
+}
+
+export function setServerUrl(url: string): void {
+  const config = loadConfig();
+  config.serverUrl = url;
   saveConfig(config);
 }
