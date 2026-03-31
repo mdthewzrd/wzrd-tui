@@ -7,6 +7,26 @@ import { WebSocket } from "ws";
 import { EventEmitter } from "events";
 
 // Message types for TUI ↔ Server protocol
+export interface ThinkingStep {
+  status: "pending" | "running" | "complete";
+  description: string;
+  timestamp: string;
+}
+
+export interface WorkItem {
+  type: "thinking" | "edit" | "create" | "delete" | "command" | "complete" | "error";
+  content?: string;
+  file?: string;
+  description?: string;
+  action?: "create" | "modify" | "delete" | "analyze";
+  lines?: number;
+  additions?: number;
+  deletions?: number;
+  output?: string;
+  exitCode?: number;
+  steps?: ThinkingStep[];
+}
+
 export interface WZRDMessage {
   type: "message" | "chunk" | "complete" | "error" | "ping" | "pong" | "typing";
   content?: string;
@@ -16,6 +36,8 @@ export interface WZRDMessage {
   error?: string;
   tokensUsed?: number;
   latency?: number;
+  work?: WorkItem[];
+  model?: string;
 }
 
 export interface ConnectionConfig {
@@ -94,27 +116,84 @@ export class WZRDWebSocketClient extends EventEmitter {
 
   private handleMessage(data: string): void {
     try {
-      const message: WZRDMessage = JSON.parse(data);
+      console.log("[WebSocket] Raw message received:", data.slice(0, 500));
+      const message = JSON.parse(data);
+      console.log("[WebSocket] Parsed message:", JSON.stringify(message, null, 2).slice(0, 500));
 
-      switch (message.type) {
+      // Handle server event format: { type: "event", event: "agent:started", data: { ... } }
+      if (message.type === "event" && message.event) {
+        const eventType = message.event;
+        const eventData = message.data;
+        console.log("[WebSocket] Emitting event:", eventType, eventData);
+
+switch (eventType) {
+          case "agent:started":
+            this.emit("agent:started", eventData);
+            break;
+          case "skills:loading":
+            this.emit("skills:loading", eventData);
+            break;
+          case "agent:thinking":
+            // Server-sent thinking steps
+            this.emit("thinking", eventData?.steps || []);
+            break;
+          case "agent:chunk":
+            // Chunk may contain content and/or work items
+            this.emit("chunk", eventData?.content || "");
+            if (eventData?.work) {
+              this.emit("work", eventData.work);
+            }
+            break;
+          case "skills:loaded":
+            this.emit("skills:loaded", eventData);
+            break;
+          case "agent:completed":
+            this.emit("complete", {
+              content: eventData?.content || "",
+              tokensUsed: eventData?.tokensUsed,
+              latency: eventData?.latency,
+              work: eventData?.work,
+            });
+            break;
+          case "typing":
+            this.emit("typing", eventData?.typing || false);
+            break;
+          case "error":
+            this.emit("error", new Error(eventData?.message || "Unknown error"));
+            break;
+          default:
+            this.emit("message", message);
+        }
+        return;
+      }
+
+      // Handle direct typing events: { type: "typing", data: { typing: true } }
+      if (message.type === "typing") {
+        this.emit("typing", message.data?.typing || false);
+        return;
+      }
+
+      // Handle legacy format
+      const wsMessage: WZRDMessage = message;
+      switch (wsMessage.type) {
         case "chunk":
-          this.emit("chunk", message.content);
+          this.emit("chunk", wsMessage.content);
           break;
         case "complete":
           this.emit("complete", {
-            content: message.content,
-            tokensUsed: message.tokensUsed,
-            latency: message.latency,
+            content: wsMessage.content,
+            tokensUsed: wsMessage.tokensUsed,
+            latency: wsMessage.latency,
           });
           break;
         case "error":
-          this.emit("error", new Error(message.error || "Unknown error"));
+          this.emit("error", new Error(wsMessage.error || "Unknown error"));
           break;
         case "typing":
-          this.emit("typing", message.content === "true");
+          this.emit("typing", wsMessage.content === "true");
           break;
         default:
-          this.emit("message", message);
+          this.emit("message", wsMessage);
       }
     } catch (error) {
       console.error("Failed to parse message:", error);
@@ -126,14 +205,19 @@ export class WZRDWebSocketClient extends EventEmitter {
       throw new Error("WebSocket not connected");
     }
 
+    console.log("[WebSocket] sendMessage called with options:", options);
+    console.log("[WebSocket] options.model:", options?.model);
+
     const message: WZRDMessage = {
       type: "message",
       content,
       sessionId: this.sessionId,
       userId: "tui-user",
       timestamp: new Date().toISOString(),
+      model: options?.model,
     };
 
+    console.log("[WebSocket] Final message object:", JSON.stringify(message, null, 2));
     this.ws.send(JSON.stringify(message));
     this.emit("sent", message);
   }

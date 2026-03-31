@@ -9,52 +9,45 @@ import { saveSession, loadSession, listSessions, autoSave, getStorageStats, getM
 import { aiClient, isAIConfigured, checkAIStatus, providers as aiProviders, modelIds, type ChatMessage } from "./api/providers";
 import { getApiKey, setApiKey, loadApiKeysToEnv } from "./config";
 import { getSystemPrompt, getPlanModePrompt } from "./agents/prompts";
+import { WZRDWebSocketClient, type WZRDMessage } from "./websocket-client";
+import { onMount, onCleanup } from "solid-js";
+import { WrappedInput } from "./components/WrappedInput";
+import { themes, defaultTheme, type Theme } from "./themes";
 
-// Opencode exact theme colors
-const theme = {
-  background: "#0a0a0a",
-  surface: "#141414",
-  element: "#1e1e1e",
-  text: "#eeeeee",
-  textMuted: "#808080",
-  textDim: "#666666",
-  primary: "#fab283",
-  accentBlue: "#6ba4ff",
-  accentPurple: "#d06efa",
-  accentGreen: "#4cd964",
-  accentOrange: "#ff9500",
-  accentRed: "#ff6b6b",
-  accentYellow: "#f4d03f",
-  accentGold: "#ffd700",
-  border: "#2a2a2a",
-  diffOld: "#2d1f1f",
-  diffNew: "#1f2d1f",
-};
+// Theme state - starts with dark theme
+const [currentTheme, setCurrentTheme] = createSignal<Theme>(defaultTheme);
 
-const agentColors: Record<string, string> = {
-  remi: theme.accentRed,
-  plan: theme.accentGreen,
-  build: theme.accentOrange,
-  system: theme.textDim,
-  user: theme.accentBlue,
-};
+// Theme accessor for components that need the theme object
+const theme = currentTheme;
 
-const agentModes = [
-  { id: "remi", name: "Remi", color: theme.accentRed },
-  { id: "plan", name: "Plan", color: theme.accentGreen },
-  { id: "build", name: "Build", color: theme.accentOrange },
+// Agent colors - computed from current theme
+const agentColors = () => ({
+  remi: currentTheme().accentRed,
+  plan: currentTheme().accentGreen,
+  build: currentTheme().accentOrange,
+  system: currentTheme().textDim,
+  user: currentTheme().accentBlue,
+});
+
+// Agent modes - computed from current theme
+const agentModes = () => [
+  { id: "remi", name: "Remi", color: currentTheme().accentRed },
+  { id: "plan", name: "Plan", color: currentTheme().accentGreen },
+  { id: "build", name: "Build", color: currentTheme().accentOrange },
 ];
 
-const skills = [
-  { id: "vision", name: "Vision", description: "Screenshot analysis & comparison", color: theme.accentPurple },
-  { id: "git", name: "Git", description: "Version control operations", color: theme.accentOrange },
-  { id: "memory", name: "Memory", description: "7-layer memory system", color: theme.accentBlue },
+// Skills - computed from current theme
+const skills = () => [
+  { id: "vision", name: "Vision", description: "Screenshot analysis & comparison", color: currentTheme().accentPurple },
+  { id: "git", name: "Git", description: "Version control operations", color: currentTheme().accentOrange },
+  { id: "memory", name: "Memory", description: "7-layer memory system", color: currentTheme().accentBlue },
 ];
 
-const providers = [
-  { id: "nvidia", name: "Nvidia NIM", color: theme.accentGreen },
-  { id: "zai", name: "Z AI", color: theme.accentBlue },
-  { id: "openrouter", name: "OpenRouter", color: theme.accentPurple },
+// Providers - computed from current theme
+const providers = () => [
+  { id: "nvidia", name: "Nvidia NIM", color: currentTheme().accentGreen },
+  { id: "zai", name: "Z AI", color: currentTheme().accentBlue },
+  { id: "openrouter", name: "OpenRouter", color: currentTheme().accentPurple },
 ];
 
 // Model pricing per 1M tokens (input/output)
@@ -86,27 +79,27 @@ const modelPricing: Record<string, { input: number; output: number; free?: boole
 
 const aiModels = [
   // Nvidia NIM - FREE Models
-  { id: "kimi-k2.5", name: "Kimi K2.5", provider: "nvidia", color: theme.accentBlue },
-  { id: "kimi-k2-instruct", name: "Kimi K2 Instruct", provider: "nvidia", color: theme.accentBlue },
-  { id: "kimi-k2-instruct-0905", name: "Kimi K2 Instruct 0905", provider: "nvidia", color: theme.accentBlue },
-  { id: "deepseek-v3.2", name: "DeepSeek V3.2", provider: "nvidia", color: theme.accentPurple },
-  { id: "nemotron-3-super", name: "Nemotron 3 Super", provider: "nvidia", color: theme.accentYellow },
-  { id: "nemotron-safety", name: "Nemotron Safety Guard", provider: "nvidia", color: theme.accentOrange },
-  { id: "qwen-3.5-122b", name: "Qwen 3.5 122B", provider: "nvidia", color: theme.accentGreen },
-  { id: "qwen-3.5-397b", name: "Qwen 3.5 397B", provider: "nvidia", color: theme.accentGreen },
+  { id: "kimi-k2.5", name: "Kimi K2.5", provider: "nvidia", color: theme().accentBlue },
+  { id: "kimi-k2-instruct", name: "Kimi K2 Instruct", provider: "nvidia", color: theme().accentBlue },
+  { id: "kimi-k2-instruct-0905", name: "Kimi K2 Instruct 0905", provider: "nvidia", color: theme().accentBlue },
+  { id: "deepseek-v3.2", name: "DeepSeek V3.2", provider: "nvidia", color: theme().accentPurple },
+  { id: "nemotron-3-super", name: "Nemotron 3 Super", provider: "nvidia", color: theme().accentYellow },
+  { id: "nemotron-safety", name: "Nemotron Safety Guard", provider: "nvidia", color: theme().accentOrange },
+  { id: "qwen-3.5-122b", name: "Qwen 3.5 122B", provider: "nvidia", color: theme().accentGreen },
+  { id: "qwen-3.5-397b", name: "Qwen 3.5 397B", provider: "nvidia", color: theme().accentGreen },
 
   // Z AI - Coding Subscription (GLM Models)
-  { id: "glm-4.7", name: "GLM 4.7", provider: "zai", color: theme.accentGreen },
-  { id: "glm-4.5-air", name: "GLM 4.5 Air", provider: "zai", color: theme.accentGreen },
-  { id: "glm-5", name: "GLM 5", provider: "zai", color: theme.accentGreen },
+  { id: "glm-4.7", name: "GLM 4.7", provider: "zai", color: theme().accentGreen },
+  { id: "glm-4.5-air", name: "GLM 4.5 Air", provider: "zai", color: theme().accentGreen },
+  { id: "glm-5", name: "GLM 5", provider: "zai", color: theme().accentGreen },
 
   // OpenRouter - Main Models
-  { id: "grok-4.1", name: "Grok 4.1", provider: "openrouter", color: theme.accentOrange },
-  { id: "minimax-m2.5", name: "Minimax M2.5", provider: "openrouter", color: theme.accentPurple },
-  { id: "llama-3.1-8b", name: "Llama 3.1 8B", provider: "openrouter", color: theme.accentBlue },
-  { id: "qwen-coder-3-480b", name: "Qwen Coder 3 480B", provider: "openrouter", color: theme.accentGreen },
-  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "openrouter", color: theme.accentYellow },
-  { id: "qwen-3.5", name: "Qwen 3.5", provider: "openrouter", color: theme.accentGreen },
+  { id: "grok-4.1", name: "Grok 4.1", provider: "openrouter", color: theme().accentOrange },
+  { id: "minimax-m2.5", name: "Minimax M2.5", provider: "openrouter", color: theme().accentPurple },
+  { id: "llama-3.1-8b", name: "Llama 3.1 8B", provider: "openrouter", color: theme().accentBlue },
+  { id: "qwen-coder-3-480b", name: "Qwen Coder 3 480B", provider: "openrouter", color: theme().accentGreen },
+  { id: "gemini-2.5-flash", name: "Gemini 2.5 Flash", provider: "openrouter", color: theme().accentYellow },
+  { id: "qwen-3.5", name: "Qwen 3.5", provider: "openrouter", color: theme().accentGreen },
 ];
 
 interface ThinkingStep {
@@ -157,6 +150,11 @@ function WZRDOpencodeClone() {
   const [gatewayConnected, setGatewayConnected] = createSignal(false);
   const [nimConnected, setNimConnected] = createSignal(false);
   const [nimStatusMessage, setNimStatusMessage] = createSignal("Checking...");
+
+  // WebSocket connection state
+  const [wsConnected, setWsConnected] = createSignal(false);
+  const [wsStatus, setWsStatus] = createSignal("Connecting...");
+  let wsClient: WZRDWebSocketClient | null = null;
   const [sessionTitle, setSessionTitle] = createSignal("Remi v2 capability inquiry");
   const [vision] = createSignal(new VisionSkill());
 const [contextTokens, setContextTokens] = createSignal(0);
@@ -173,6 +171,8 @@ const CRITICAL_THRESHOLD = 0.95; // 95%
   const [streamingContent, setStreamingContent] = createSignal("");
   const [streamingWork, setStreamingWork] = createSignal<WorkItem[]>([]);
   const [showStreaming, setShowStreaming] = createSignal(false);
+  const [currentStreamingId, setCurrentStreamingId] = createSignal<number | null>(null);
+  let requestStartTime = 0; // Track when request starts for response time calculation
   const [messages, setMessages] = createSignal<Message[]>([]);
   const [showCommands, setShowCommands] = createSignal(false);
   const [autoScroll, setAutoScroll] = createSignal(true);
@@ -190,20 +190,24 @@ const CRITICAL_THRESHOLD = 0.95; // 95%
   const [showModePicker, setShowModePicker] = createSignal(false);
   const [selectedModeIndex, setSelectedModeIndex] = createSignal(0);
 
-  // Session picker state
-  const [showSessionPicker, setShowSessionPicker] = createSignal(false);
-  const [sessionPickerFilter, setSessionPickerFilter] = createSignal("");
-  const [selectedSessionIndex, setSelectedSessionIndex] = createSignal(0);
-  const [availableSessions, setAvailableSessions] = createSignal<{id: string; title: string; updatedAt: string}[]>([]);
+// Session picker state
+const [showSessionPicker, setShowSessionPicker] = createSignal(false);
+const [sessionPickerFilter, setSessionPickerFilter] = createSignal("");
+const [selectedSessionIndex, setSelectedSessionIndex] = createSignal(0);
+const [availableSessions, setAvailableSessions] = createSignal<{id: string; title: string; updatedAt: string}[]>([]);
 
-  // File picker state
+// Theme picker state
+const [showThemePicker, setShowThemePicker] = createSignal(false);
+const [selectedThemeIndex, setSelectedThemeIndex] = createSignal(0);
+
+// File picker state
   const [showFilePicker, setShowFilePicker] = createSignal(false);
   const [filePickerFilter, setFilePickerFilter] = createSignal("");
   const [selectedFileIndex, setSelectedFileIndex] = createSignal(0);
   const [availableFiles, setAvailableFiles] = createSignal<string[]>([]);
   const [filePickerMode, setFilePickerMode] = createSignal<"read" | "edit">("read");
 
-const [activeOverlay, setActiveOverlay] = createSignal<"none" | "model" | "mode" | "session" | "file" | "apikey" | "rename">("none");
+const [activeOverlay, setActiveOverlay] = createSignal<"none" | "model" | "mode" | "session" | "file" | "apikey" | "rename" | "theme">("none");
 
 // API key input state
 const [showApiKeyInput, setShowApiKeyInput] = createSignal(false);
@@ -228,9 +232,12 @@ const [expandedThinking, setExpandedThinking] = createSignal<Set<number>>(new Se
 const [expandedWorkItems, setExpandedWorkItems] = createSignal<Set<number>>(new Set());
 
 // Phase 6: Extended Thinking toggle
-const [extendedThinking, setExtendedThinking] = createSignal(false);
+  const [extendedThinking, setExtendedThinking] = createSignal(false);
 
-// Phase 6: Session rename state
+  // Verbose mode toggle - shows thinking and work items
+  const [verboseMode, setVerboseMode] = createSignal(false);
+
+  // Phase 6: Session rename state
 const [renameInput, setRenameInput] = createSignal("");
 const [showRenameInput, setShowRenameInput] = createSignal(false);
 
@@ -243,6 +250,7 @@ const [fileBrowserEntries, setFileBrowserEntries] = createSignal<{name: string; 
 const [expandedDirs, setExpandedDirs] = createSignal<Set<string>>(new Set());
 const [browserSelectedIndex, setBrowserSelectedIndex] = createSignal<number>(0);
 const [fileBrowserLoaded, setFileBrowserLoaded] = createSignal(false);
+const [isAttachingFile, setIsAttachingFile] = createSignal(false);
 
 // Phase 6: Custom skills registry
 interface CustomSkill {
@@ -327,15 +335,191 @@ createEffect(() => {
   loadClaudeMd();
 });
 
-// Phase 6: Load custom skills on mount
-createEffect(() => {
-  if (!skillsLoaded()) {
-    loadCustomSkills();
-    setSkillsLoaded(true);
-  }
-});
+  // Phase 6: Load custom skills on mount
+  createEffect(() => {
+    if (!skillsLoaded()) {
+      loadCustomSkills();
+      setSkillsLoaded(true);
+    }
+  });
 
-// Phase 6: Load CLAUDE.md configuration
+  // WebSocket connection setup
+  onMount(() => {
+    // Initialize WebSocket client
+    wsClient = new WZRDWebSocketClient({
+      serverUrl: "ws://100.118.174.102:5666",
+      autoReconnect: true,
+      reconnectDelay: 3000,
+      maxReconnectAttempts: 10,
+      pingInterval: 30000,
+    });
+
+    // Listen for connection events
+    wsClient.on("connected", () => {
+      setWsConnected(true);
+      setWsStatus("Connected");
+      console.log("[WebSocket] Connected to server");
+    });
+
+    wsClient.on("disconnected", () => {
+      setWsConnected(false);
+      setWsStatus("Disconnected");
+      console.log("[WebSocket] Disconnected from server");
+    });
+
+    wsClient.on("reconnecting", (attempt: number) => {
+      setWsConnected(false);
+      setWsStatus(`Reconnecting (${attempt})...`);
+      console.log(`[WebSocket] Reconnecting attempt ${attempt}`);
+    });
+
+    wsClient.on("error", (error: Error) => {
+      console.error("[WebSocket] Error:", error.message);
+    });
+
+    // Handle incoming messages from server
+    wsClient.on("agent:started", () => {
+      setIsProcessing(true);
+      setShowStreaming(true);
+    });
+
+    wsClient.on("skills:loading", () => {
+      // Skills are loading
+      console.log("[WebSocket] Loading skills...");
+    });
+
+    wsClient.on("chunk", (content: string) => {
+      // Streaming chunk received - update the thinking message
+      const streamingId = currentStreamingId();
+      if (!streamingId) return;
+
+      setStreamingContent(prev => {
+        const newContent = prev + content;
+        // Update the message in the messages array
+        setMessages(msgs => msgs.map(m =>
+          m.id === streamingId
+            ? { ...m, content: newContent }
+            : m
+        ));
+        return newContent;
+      });
+    });
+
+wsClient.on("skills:loaded", () => {
+    // Skills loaded
+    console.log("[WebSocket] Skills loaded");
+  });
+
+  // Accumulate work items during streaming
+  let accumulatedWork: WorkItem[] = [];
+
+  wsClient.on("thinking", (steps: ThinkingStep[]) => {
+    // Server-sent thinking steps
+    const streamingId = currentStreamingId();
+    if (!streamingId) return;
+
+    // Add or update thinking work item
+    const existingThinkingIndex = accumulatedWork.findIndex(w => w.type === "thinking");
+    if (existingThinkingIndex >= 0) {
+      accumulatedWork[existingThinkingIndex]!.steps = steps;
+    } else {
+      accumulatedWork.push({ type: "thinking", steps });
+    }
+
+    // Update message with thinking steps
+    setMessages(msgs => msgs.map(m =>
+      m.id === streamingId
+        ? { ...m, work: [...accumulatedWork] }
+        : m
+    ));
+  });
+
+  wsClient.on("work", (work: WorkItem[]) => {
+    // Server-sent work items (file edits, creates, etc.)
+    const streamingId = currentStreamingId();
+    if (!streamingId) return;
+
+    // Accumulate work items
+    accumulatedWork.push(...work);
+
+    // Update message with work items
+    setMessages(msgs => msgs.map(m =>
+      m.id === streamingId
+        ? { ...m, work: [...accumulatedWork] }
+        : m
+    ));
+  });
+
+  wsClient.on("complete", (data: { content: string; tokensUsed?: number; latency?: number; work?: WorkItem[] }) => {
+    // Reset accumulated work for next message
+    accumulatedWork = [];
+    // Final response received
+    const endTime = Date.now();
+    const responseTimeSec = ((endTime - requestStartTime) / 1000).toFixed(1);
+    const streamingId = currentStreamingId();
+
+    setMessages(prev => {
+      // Update the thinking message to complete
+      return prev.map(m =>
+        m.id === streamingId
+        ? {
+            ...m,
+            content: data.content || m.content,
+            responseTime: `${responseTimeSec}s`,
+            status: "complete",
+            work: data.work || m.work
+          }
+        : m
+      );
+    });
+
+    setIsProcessing(false);
+    setShowStreaming(false);
+    setStreamingContent("");
+    setCurrentStreamingId(null);
+
+    // Update tokens if provided
+    if (data.tokensUsed) {
+      setContextTokens(prev => prev + data.tokensUsed!);
+    }
+  });
+
+    wsClient.on("typing", (isTyping: boolean) => {
+      // Show/hide typing indicator
+      setShowStreaming(isTyping);
+    });
+
+    wsClient.on("message", (message: WZRDMessage) => {
+      if (message.type === "message" && message.content) {
+        setMessages(prev => [...prev, {
+          id: prev.length + 1,
+          role: "assistant",
+          content: message.content!,
+          agent: currentMode(),
+          agentFullName: "Remi-V2",
+          model: currentModel(),
+          timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
+          status: "complete"
+        }]);
+      }
+    });
+
+    // Connect to server
+    wsClient.connect().catch((error) => {
+      console.error("[WebSocket] Failed to connect:", error.message);
+      setWsStatus("Connection failed");
+    });
+  });
+
+  onCleanup(() => {
+    // Cleanup WebSocket connection on unmount
+    if (wsClient) {
+      wsClient.disconnect();
+      wsClient = null;
+    }
+  });
+
+  // Phase 6: Load CLAUDE.md configuration
 async function loadClaudeMd(): Promise<void> {
   try {
     const { existsSync, readFileSync } = await import("fs");
@@ -466,8 +650,73 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
   return { processedText, atFiles };
 }
 
+// Build file browser entries recursively
+async function buildFileBrowserEntries(
+  dirPath: string, 
+  depth: number,
+  expanded: Set<string>
+): Promise<{name: string; path: string; isDirectory: boolean; depth: number}[]> {
+  const entries: {name: string; path: string; isDirectory: boolean; depth: number}[] = [];
+  
+  try {
+    const { readdirSync, statSync } = await import("fs");
+    const { join } = await import("path");
+    
+    const fullPath = join(process.cwd(), dirPath);
+    const items = readdirSync(fullPath);
+    
+    // Sort: directories first, then files
+    const sorted = items
+      .filter(name => !name.startsWith(".") && name !== "node_modules" && name !== "dist")
+      .sort((a, b) => {
+        const aPath = join(fullPath, a);
+        const bPath = join(fullPath, b);
+        const aIsDir = statSync(aPath).isDirectory();
+        const bIsDir = statSync(bPath).isDirectory();
+        if (aIsDir && !bIsDir) return -1;
+        if (!aIsDir && bIsDir) return 1;
+        return a.localeCompare(b);
+      });
+    
+    for (const name of sorted) {
+      const itemPath = join(dirPath, name);
+      const fullItemPath = join(fullPath, name);
+      const isDir = statSync(fullItemPath).isDirectory();
+      
+      entries.push({
+        name,
+        path: itemPath,
+        isDirectory: isDir,
+        depth
+      });
+      
+      // If directory is expanded, add its children
+      if (isDir && expanded.has(itemPath)) {
+        const children = await buildFileBrowserEntries(itemPath, depth + 1, expanded);
+        entries.push(...children);
+      }
+    }
+  } catch {
+    // Directory not accessible
+  }
+  
+  return entries;
+}
+
 // Keyboard shortcuts
   useKeyboard((key) => {
+    // Global ESC - interrupt processing if active
+    if (key.name === "escape" && isProcessing()) {
+      setIsProcessing(false);
+      setMessages(prev => [...prev, {
+        id: prev.length + 1,
+        role: "system",
+        content: "⚠️ Interrupted by user",
+        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+      }]);
+      return;
+    }
+
     // Handle model picker FIRST (before other checks)
     if (showModelPicker()) {
       // Get filtered models
@@ -680,6 +929,7 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
 
     // Handle mode picker
     if (showModePicker()) {
+      const modes = agentModes();
       if (key.name === "up") {
         const currentIdx = selectedModeIndex();
         if (currentIdx > 0) setSelectedModeIndex(currentIdx - 1);
@@ -687,11 +937,11 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
       }
       if (key.name === "down") {
         const currentIdx = selectedModeIndex();
-        if (currentIdx < agentModes.length - 1) setSelectedModeIndex(currentIdx + 1);
+        if (currentIdx < modes.length - 1) setSelectedModeIndex(currentIdx + 1);
         return;
       }
       if (key.name === "return") {
-        const selectedMode = agentModes[selectedModeIndex()];
+        const selectedMode = modes[selectedModeIndex()];
         if (selectedMode) {
           setCurrentMode(selectedMode.id);
           setMessages(prev => [...prev, {
@@ -748,6 +998,45 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
       }
       if (key.name === "escape") {
         setShowSessionPicker(false);
+        setActiveOverlay("none");
+        return;
+      }
+      return;
+    }
+
+    // Handle theme picker
+    if (showThemePicker()) {
+      const themeOptions = ["dark", "light"];
+      if (key.name === "up") {
+        const currentIdx = selectedThemeIndex();
+        if (currentIdx > 0) setSelectedThemeIndex(currentIdx - 1);
+        return;
+      }
+      if (key.name === "down") {
+        const currentIdx = selectedThemeIndex();
+        if (currentIdx < themeOptions.length - 1) setSelectedThemeIndex(currentIdx + 1);
+        return;
+      }
+      if (key.name === "return") {
+        const selectedThemeName = themeOptions[selectedThemeIndex()];
+        if (selectedThemeName) {
+          const newTheme = themes[selectedThemeName];
+          if (newTheme) {
+            setCurrentTheme(newTheme);
+            setMessages(prev => [...prev, {
+              id: prev.length + 1,
+              role: "system",
+              content: `Switched to ${selectedThemeName} theme`,
+              timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            }]);
+          }
+        }
+        setShowThemePicker(false);
+        setActiveOverlay("none");
+        return;
+      }
+      if (key.name === "escape") {
+        setShowThemePicker(false);
         setActiveOverlay("none");
         return;
       }
@@ -818,9 +1107,10 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
 
     // Tab switches agent modes (only when not in command completion)
     if (key.name === "tab" && !input().startsWith("/")) {
-      const currentIdx = agentModes.findIndex(m => m.id === currentMode());
-      const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % agentModes.length : 0;
-      setCurrentMode(agentModes[nextIdx]!.id);
+      const modes = agentModes();
+      const currentIdx = modes.findIndex(m => m.id === currentMode());
+      const nextIdx = currentIdx >= 0 ? (currentIdx + 1) % modes.length : 0;
+      setCurrentMode(modes[nextIdx]!.id);
       return;
     }
 
@@ -859,26 +1149,31 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
       return;
     }
 
-    // File browser navigation (when on files page)
-    if (sidebarPage() === "files" && fileBrowserLoaded()) {
+    // File browser navigation (when on files page and no overlay active)
+    if (sidebarPage() === "files" && fileBrowserLoaded() && activeOverlay() === "none" && !showCommands()) {
       const entries = fileBrowserEntries();
       const currentIdx = browserSelectedIndex();
       
-      if (key.name === "up") {
+      if (key.name === "up" || key.name === "k") {
         if (currentIdx > 0) {
           setBrowserSelectedIndex(currentIdx - 1);
         }
         return;
       }
       
-      if (key.name === "down") {
+      if (key.name === "down" || key.name === "j") {
         if (currentIdx < entries.length - 1) {
           setBrowserSelectedIndex(currentIdx + 1);
         }
         return;
       }
       
-      if (key.name === "return" || key.name === "space") {
+      if (key.name === "return" || key.name === "space" || key.name === "l") {
+        // Prevent multiple rapid attachments
+        if (isAttachingFile()) {
+          return;
+        }
+        
         const selected = entries[currentIdx];
         if (selected) {
           if (selected.isDirectory) {
@@ -890,14 +1185,33 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
               newExpanded.add(selected.path);
             }
             setExpandedDirs(newExpanded);
+            // Rebuild entries with new expansion state
+            buildFileBrowserEntries(".", 0, newExpanded).then(entries => {
+              setFileBrowserEntries(entries);
+            });
           } else {
-            // Read file
+            // Read file - check if already attached first
+            const alreadyAttached = attachedFiles().some(f => f.path === selected.path);
+            if (alreadyAttached) {
+              setMessages(prev => [...prev, {
+                id: prev.length + 1,
+                role: "system",
+                content: `File already attached: ${selected.path}`,
+                timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+              }]);
+              return;
+            }
+            
+            // Set lock to prevent multiple attachments
+            setIsAttachingFile(true);
+            
             fileSkill.readFile(selected.path).then(result => {
               if (result.success && result.content) {
+                const content = result.content;
                 setAttachedFiles(prev => [...prev, { 
                   path: selected.path, 
-                  content: result.content, 
-                  size: result.content.length 
+                  content: content, 
+                  size: content.length 
                 }]);
                 setMessages(prev => [...prev, {
                   id: prev.length + 1,
@@ -906,8 +1220,26 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
                   timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
                 }]);
               }
+              // Release lock after a short delay
+              setTimeout(() => setIsAttachingFile(false), 500);
+            }).catch(() => {
+              setIsAttachingFile(false);
             });
           }
+        }
+        return;
+      }
+      
+      // h to go back/collapse
+      if (key.name === "h") {
+        const selected = entries[currentIdx];
+        if (selected && selected.isDirectory && expandedDirs().has(selected.path)) {
+          const newExpanded = new Set(expandedDirs());
+          newExpanded.delete(selected.path);
+          setExpandedDirs(newExpanded);
+          buildFileBrowserEntries(".", 0, newExpanded).then(entries => {
+            setFileBrowserEntries(entries);
+          });
         }
         return;
       }
@@ -981,16 +1313,32 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
           setSelectedModelIndex(0);
         } else if (selected === "/mode") {
           setActiveOverlay("mode");
-          // For mode, we'll just cycle through modes
-          const currentIdx = agentModes.findIndex(m => m.id === currentMode());
-          const nextIdx = (currentIdx + 1) % agentModes.length;
-          setCurrentMode(agentModes[nextIdx]!.id);
-          setMessages(prev => [...prev, {
-            id: prev.length + 1,
-            role: "system",
-            content: `Switched to ${agentModes[nextIdx]!.name} mode`,
-            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-          }]);
+          setShowModePicker(true);
+          const modes = agentModes();
+          const currentIdx = modes.findIndex(m => m.id === currentMode());
+          setSelectedModeIndex(currentIdx >= 0 ? currentIdx : 0);
+        } else if (selected === "/sessions" && commands["/sessions"]) {
+          // Execute /sessions immediately
+          setShowCommandSuggestions(false);
+          setInput("");
+          commands["/sessions"].handler([]);
+        } else if (selected === "/save" && commands["/save"]) {
+          // Execute /save immediately
+          setShowCommandSuggestions(false);
+          setInput("");
+          commands["/save"].handler([]);
+        } else if (selected === "/load" && commands["/load"]) {
+          // Open load overlay
+          setShowCommandSuggestions(false);
+          setInput("");
+          commands["/load"].handler([]);
+        } else if (selected === "/theme") {
+          // Open theme picker overlay
+          setShowCommandSuggestions(false);
+          setInput("");
+          setActiveOverlay("theme");
+          setShowThemePicker(true);
+          setSelectedThemeIndex(currentTheme().name === "dark" ? 0 : 1);
         } else {
           // Regular command - just set input
           setInput(selected + " ");
@@ -1091,9 +1439,58 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
         }]);
       }
     },
+"/theme": {
+      description: "Switch theme (dark/light)",
+      handler: (args) => {
+        const themeName = args[0]?.toLowerCase();
+        if (themeName === "light") {
+          const light = themes.light;
+          if (light) {
+            setCurrentTheme(light);
+            setMessages(prev => [...prev, {
+              id: prev.length + 1,
+              role: "system",
+              content: "Switched to light theme",
+              timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            }]);
+          }
+        } else if (themeName === "dark") {
+          const dark = themes.dark;
+          if (dark) {
+            setCurrentTheme(dark);
+            setMessages(prev => [...prev, {
+              id: prev.length + 1,
+              role: "system",
+              content: "Switched to dark theme",
+              timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+            }]);
+          }
+        } else {
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            role: "system",
+            content: `Current theme: ${currentTheme().name}\n\nAvailable themes:\n- dark\n- light\n\nUsage: /theme <dark|light>`,
+            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          }]);
+        }
+}
+    },
+    "/verbose": {
+      description: "Toggle verbose mode (shows thinking & work items)",
+      handler: () => {
+        const newState = !verboseMode();
+        setVerboseMode(newState);
+        setMessages(prev => [...prev, {
+          id: prev.length + 1,
+          role: "system",
+          content: `Verbose mode ${newState ? "enabled" : "disabled"}. ${newState ? "You will now see thinking steps and work items in responses." : "Responses will be shown in compact mode."}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+        }]);
+      }
+    },
     "/demo": {
       description: "Run live demo of chat responses",
-      handler: async () => {
+    handler: async () => {
         // Demo 1: Simple greeting (no thinking)
         setMessages(prev => [...prev, {
           id: prev.length + 1,
@@ -1404,7 +1801,8 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
           // Open mode picker overlay when no argument provided
           setActiveOverlay("mode");
           setShowModePicker(true);
-          setSelectedModeIndex(agentModes.findIndex(m => m.id === currentMode()));
+          const modes = agentModes();
+          setSelectedModeIndex(modes.findIndex(m => m.id === currentMode()));
           return;
         }
         if (["remi", "plan", "build"].includes(mode)) {
@@ -1429,19 +1827,31 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
         }]);
       }
     },
-  "/save": {
-    description: "Save current session",
-    handler: (args) => {
-      const title = args.join(" ") || sessionTitle();
-      saveSession(messages(), title, contextTokens(), totalTokens(), cost());
-      setMessages(prev => [...prev, {
-        id: prev.length + 1,
-        role: "system",
-        content: `Session saved: "${title}"`,
-        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-      }]);
-    }
-  },
+    "/save": {
+      description: "Save current session",
+      handler: (args) => {
+        try {
+          const title = args.join(" ") || sessionTitle();
+          console.log(`[Save] Saving session: "${title}"`);
+          const session = saveSession(messages(), title, contextTokens(), totalTokens(), cost(), currentModel(), currentMode());
+          console.log(`[Save] Session saved with ID: ${session.id}`);
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            role: "system",
+            content: `Session saved: "${title}"\nID: ${session.id.slice(0, 20)}...`,
+            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          }]);
+        } catch (error) {
+          console.error("[Save] Error:", error);
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            role: "system",
+            content: `Error saving session: ${error instanceof Error ? error.message : String(error)}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          }]);
+        }
+      }
+    },
 "/load": {
       description: "Load a session by ID",
       handler: (args) => {
@@ -1477,33 +1887,57 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
         }
       }
     },
-  "/sessions": {
-    description: "List saved sessions",
-    handler: () => {
-      const sessions = listSessions();
-      setMessages(prev => [...prev, {
-        id: prev.length + 1,
-        role: "system",
-        content: sessions.length ? `Saved sessions:\n${sessions.map(s => `[${s.id}] ${s.title} - ${new Date(s.updatedAt).toLocaleString()}`).join("\n")}` : "No saved sessions",
-        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-      }]);
-    }
-  },
-  "/nim": {
-    description: "Check NIM API status",
-    handler: async () => {
-      const status = await checkAIStatus();
-      setNimConnected(status.connected);
-      setNimStatusMessage(status.message);
-      setMessages(prev => [...prev, {
-        id: prev.length + 1,
-        role: "system",
-        content: `NIM API Status: ${status.connected ? "✓ Connected" : "✗ Disconnected"}\n${status.message}\n\nTo configure, set NIM_API_KEY environment variable.`,
-        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
-      }]);
-    }
-  },
-"/read": {
+    "/sessions": {
+      description: "List saved sessions",
+      handler: () => {
+        try {
+          console.log("[Sessions] Loading sessions...");
+          const sessions = listSessions();
+          console.log(`[Sessions] Found ${sessions.length} sessions`);
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            role: "system",
+            content: sessions.length ? `Saved sessions (${sessions.length}):\n${sessions.map(s => `[${s.id.slice(0, 20)}...] ${s.title} - ${new Date(s.updatedAt).toLocaleDateString()}`).join("\n")}` : "No saved sessions found. Use /save <title> to create one.",
+            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          }]);
+        } catch (error) {
+          console.error("[Sessions] Error:", error);
+          setMessages(prev => [...prev, {
+            id: prev.length + 1,
+            role: "system",
+            content: `Error loading sessions: ${error instanceof Error ? error.message : String(error)}`,
+            timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+          }]);
+        }
+      }
+    },
+    "/nim": {
+      description: "Check NIM API status",
+      handler: async () => {
+        const status = await checkAIStatus();
+        setNimConnected(status.connected);
+        setNimStatusMessage(status.message);
+        setMessages(prev => [...prev, {
+          id: prev.length + 1,
+          role: "system",
+          content: `NIM API Status: ${status.connected ? "✓ Connected" : "✗ Disconnected"}\n${status.message}\n\nTo configure, set NIM_API_KEY environment variable.`,
+          timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+        }]);
+      }
+    },
+    "/ws": {
+      description: "Check WebSocket connection status",
+      handler: () => {
+        const status = wsConnected() ? "✓ Connected" : "✗ Disconnected";
+        setMessages(prev => [...prev, {
+          id: prev.length + 1,
+          role: "system",
+          content: `WebSocket Status: ${status}\nServer: ws://100.118.174.102:5666\nStatus: ${wsStatus()}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+        }]);
+      }
+    },
+    "/read": {
       description: "Read file contents (e.g., /read src/index.tsx)",
       handler: async (args) => {
         const path = args[0];
@@ -1647,13 +2081,16 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
 "/files": {
       description: "Show project files in sidebar (switches to Files tab)",
       handler: async () => {
-        const tree = await fileSkill.getFileTree(".", 2);
-        setFileTree(tree);
-        setSidebarPage("files"); // Switch to files page
+        // Build file browser entries
+        const entries = await buildFileBrowserEntries(".", 0, expandedDirs());
+        setFileBrowserEntries(entries);
+        setFileBrowserLoaded(true);
+        setBrowserSelectedIndex(0);
+        setSidebarPage("files");
         setMessages(prev => [...prev, {
           id: prev.length + 1,
           role: "system",
-          content: "File tree loaded. Switched to Files tab.",
+          content: "File browser loaded. Switched to Files tab. Use ↑↓ to navigate, Enter to open, Space to toggle.",
           timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
         }]);
       }
@@ -2367,6 +2804,19 @@ async function processAtReferences(text: string): Promise<{ processedText: strin
         }]);
         return;
       }
+      
+      // Check if already attached
+      const alreadyAttached = attachedFiles().some(f => f.path === filePath);
+      if (alreadyAttached) {
+        setMessages(prev => [...prev, {
+          id: prev.length + 1,
+          role: "system",
+          content: `File already attached: ${filePath}`,
+          timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true })
+        }]);
+        return;
+      }
+      
       const result = await fileSkill.readFile(filePath);
       
       if (!result.success || !result.content) {
@@ -2558,25 +3008,30 @@ async function handleSubmit() {
   const text = input().trim();
   if (!text || isProcessing()) return;
 
-// Handle commands
+    // Handle commands
     if (text.startsWith("/")) {
       const parts = text.split(" ");
       const cmd = parts[0]!.toLowerCase();
       const args = parts.slice(1);
+      
+      console.log(`[Command] Input: "${text}", Parsed cmd: "${cmd}"`);
 
       if (commands[cmd]) {
+        console.log(`[Command] Exact match found: ${cmd}`);
         commands[cmd].handler(args);
-    } else {
-      // Check for partial match - autocomplete if unique
-      const matches = Object.keys(commands).filter(c => c.startsWith(cmd));
-      const matchedCmd = matches[0];
-      if (matches.length === 1 && matchedCmd) {
-        const command = commands[matchedCmd as keyof typeof commands];
-        if (command) {
-          // Unique match - execute it
-          command.handler(args);
-        }
-      } else if (matches.length > 1) {
+      } else {
+        // Check for partial match - autocomplete if unique
+        const matches = Object.keys(commands).filter(c => c.startsWith(cmd));
+        console.log(`[Command] Partial matches for "${cmd}":`, matches);
+        const matchedCmd = matches[0];
+        if (matches.length === 1 && matchedCmd) {
+          console.log(`[Command] Auto-completing to: ${matchedCmd}`);
+          const command = commands[matchedCmd as keyof typeof commands];
+          if (command) {
+            // Unique match - execute it
+            command.handler(args);
+          }
+        } else if (matches.length > 1) {
           // Multiple matches - show ambiguous message
           setMessages(prev => [...prev, {
             id: prev.length + 1,
@@ -2598,10 +3053,10 @@ async function handleSubmit() {
       return;
     }
 
-const startTime = Date.now();
-    setIsProcessing(true);
-    setStreamingContent("");
-    setShowStreaming(true);
+  requestStartTime = Date.now();
+  setIsProcessing(true);
+  setStreamingContent("");
+  setShowStreaming(true);
 
     // Phase 6: Check for custom skill invocation
     if (text.startsWith(".")) {
@@ -2642,29 +3097,35 @@ const startTime = Date.now();
     });
     setHistoryIndex(-1);
 
-    // Clear input immediately after adding user message
-    setInput("");
+  // Clear input immediately after adding user message
+  setInput("");
 
-    // Check if NIM is configured
-    if (!isAIConfigured()) {
-      setMessages(prev => [...prev, {
-        id: prev.length + 1,
-        role: "assistant",
-        content: "NIM API is not configured. Please set the NIM_API_KEY environment variable to use AI features.",
-        agent: currentMode(),
-        agentFullName: "Remi-V2",
-        model: currentModel(),
-        timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
-        responseTime: "0.0s",
-        status: "complete"
-      }]);
-      setIsProcessing(false);
-      setShowStreaming(false);
-      return;
-    }
+// DISABLED: WebSocket is broken, use direct API calls instead
+    // if (wsClient?.isConnected()) { ... }
 
-// Set current model first
-    aiClient.setModel(currentModel());
+    // Use direct API calls - they actually work
+    console.log("[TUI] Using direct API call with model:", currentModel());
+
+  // Fallback: Check if NIM is configured for direct API calls
+  if (!isAIConfigured()) {
+    setMessages(prev => [...prev, {
+      id: prev.length + 1,
+      role: "assistant",
+      content: "NIM API is not configured. Please set the NIM_API_KEY environment variable to use AI features.",
+      agent: currentMode(),
+      agentFullName: "Remi-V2",
+      model: currentModel(),
+      timestamp: new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true }),
+      responseTime: "0.0s",
+      status: "complete"
+    }]);
+    setIsProcessing(false);
+    setShowStreaming(false);
+    return;
+  }
+
+  // Fallback: Set current model for direct API call
+  aiClient.setModel(currentModel());
 
 // Phase 6: Get appropriate system prompt based on mode
     const baseSystemPrompt = currentMode() === "plan" 
@@ -2830,10 +3291,10 @@ const response = await aiClient.chat(messagesForAPI, {
       }
     });
 
-    const endTime = Date.now();
-    const responseTimeSec = ((endTime - startTime) / 1000).toFixed(1);
+      const endTime = Date.now();
+      const responseTimeSec = ((endTime - requestStartTime) / 1000).toFixed(1);
 
-// Update tokens and cost
+      // Update tokens and cost
       const newTokens = contextTokens() + (response.usage?.total_tokens || fullContent.length / 4);
       setContextTokens(Math.round(newTokens));
       const newCost = cost() + aiClient.calculateCost(
@@ -2904,7 +3365,7 @@ const response = await aiClient.chat(messagesForAPI, {
 
   } catch (error) {
     const endTime = Date.now();
-    const responseTimeSec = ((endTime - startTime) / 1000).toFixed(1);
+    const responseTimeSec = ((endTime - requestStartTime) / 1000).toFixed(1);
 
     setMessages(prev => prev.map(m =>
       m.id === streamingId
@@ -2937,9 +3398,10 @@ const response = await aiClient.chat(messagesForAPI, {
     }
 
   const getMessageBorderColor = (msg: Message) => {
-    if (msg.role === "system") return agentColors.system;
-    if (msg.role === "user") return agentColors.user;
-    return agentColors[msg.agent || "remi"] || theme.accentBlue;
+    const colors = agentColors();
+    if (msg.role === "system") return colors.system;
+    if (msg.role === "user") return colors.user;
+    return colors[msg.agent as keyof typeof colors] || theme().accentBlue;
   };
 
 // Format message content with markdown-like styling
@@ -2947,6 +3409,35 @@ const formatContent = (content: string): string => {
   if (!content) return "";
   // Remove markdown bold markers for display
   return content.replace(/\*\*/g, "");
+};
+
+// Wrap text to fit within terminal width
+const wrapText = (text: string, maxWidth: number): string[] => {
+  if (!text) return [];
+  const words = text.split(' ');
+  const lines: string[] = [];
+  let currentLine = '';
+
+  for (const word of words) {
+    if ((currentLine + word).length > maxWidth) {
+      if (currentLine) {
+        lines.push(currentLine.trim());
+        currentLine = word + ' ';
+      } else {
+        // Word is longer than maxWidth, split it
+        lines.push(word.slice(0, maxWidth));
+        currentLine = word.slice(maxWidth) + ' ';
+      }
+    } else {
+      currentLine += word + ' ';
+    }
+  }
+
+  if (currentLine.trim()) {
+    lines.push(currentLine.trim());
+  }
+
+  return lines;
 };
 
 // Parse work items from AI response
@@ -3043,23 +3534,45 @@ const sidebarWidth = 38;
   });
 
   return (
-    <box flexDirection="column" flexGrow={1} backgroundColor={theme.background}>
+    <box flexDirection="column" flexGrow={1} backgroundColor={theme().background}>
+      {/* Header with WebSocket status */}
+      <box flexDirection="row" justifyContent="space-between" padding={1} height={1}>
+        {/* Left: WebSocket connection status */}
+        <box flexDirection="row">
+          <Show when={wsConnected()}>
+            <text fg={theme().accentGreen}>● Connected</text>
+          </Show>
+          <Show when={!wsConnected()}>
+            <text fg={theme().accentRed}>● Disconnected</text>
+          </Show>
+          <text fg={theme().textMuted}> | Server</text>
+        </box>
+
+        {/* Right: Model info */}
+        <box flexDirection="row">
+          <text fg={theme().textMuted}>Model: </text>
+          <text fg={aiModels.find(m => m.id === currentModel())?.color || theme().accentBlue}>
+            {aiModels.find(m => m.id === currentModel())?.name || currentModel()}
+          </text>
+        </box>
+      </box>
+
       {/* Main content */}
       <box flexDirection="row" flexGrow={1}>
         {/* Left: Chat area */}
-        <box flexDirection="column" width={chatWidth()} flexGrow={1} backgroundColor={theme.background}>
+        <box flexDirection="column" width={chatWidth()} flexGrow={1} backgroundColor={theme().background}>
           {/* Messages - with adjusted left/right padding */}
           <scrollbox
             flexGrow={1}
-            backgroundColor={theme.background}
+            backgroundColor={theme().background}
             paddingLeft={3}
             paddingRight={1}
             verticalScrollbarOptions={{
               paddingLeft: 1,
               visible: true,
               trackOptions: {
-                backgroundColor: theme.element,
-                foregroundColor: theme.border,
+                backgroundColor: theme().element,
+                foregroundColor: theme().border,
               },
             }}
             stickyScroll={autoScroll()}
@@ -3071,143 +3584,116 @@ const sidebarWidth = 38;
                   {/* Message header - only show responseTime when complete */}
                   <box flexDirection="row" marginBottom={1}>
                     <Show when={msg.role === "assistant" && msg.agentFullName}>
-                      <text fg={theme.accentRed}>▣ </text>
-                      <text fg={theme.text}>{msg.agentFullName}</text>
-                      <text fg={theme.textMuted}> · </text>
-                      <text fg={theme.textMuted}>{msg.model}</text>
+                      <text fg={theme().accentRed}>▣ </text>
+                      <text fg={theme().text}>{msg.agentFullName}</text>
+                      <text fg={theme().textMuted}> · </text>
+                      <text fg={theme().textMuted}>{msg.model}</text>
                       <Show when={msg.responseTime}>
-                        <text fg={theme.textMuted}> · {msg.responseTime}</text>
+                        <text fg={theme().textMuted}> · {msg.responseTime}</text>
                       </Show>
                     </Show>
                     <Show when={msg.role === "user"}>
-                      <text fg={theme.accentBlue}>You</text>
-                      <text fg={theme.textMuted}> · {msg.timestamp}</text>
+                      <text fg={theme().accentBlue}>You</text>
+                      <text fg={theme().textMuted}> · {msg.timestamp}</text>
                     </Show>
                     <Show when={msg.role === "system"}>
-                      <text fg={theme.textDim}>System</text>
-                      <text fg={theme.textMuted}> · {msg.timestamp}</text>
+                      <text fg={theme().textDim}>System</text>
+                      <text fg={theme().textMuted}> · {msg.timestamp}</text>
                     </Show>
                   </box>
 
-                  {/* Message content */}
-                  <Show when={msg.role === "user"}>
-                    <box flexDirection="row" marginBottom={1}>
-                      <box width={1} backgroundColor={agentColors[currentMode()]} flexShrink={0} />
-                      <box flexDirection="column" flexGrow={1} backgroundColor={theme.element} padding={1}>
-                        <text fg={theme.text}>{msg.content}</text>
-                      </box>
-                    </box>
-                  </Show>
-
-<Show when={msg.role === "assistant"}>
-      <box flexDirection="column" marginLeft={1}>
-        <Show when={msg.content}>
-          <box flexDirection="column" marginBottom={1}>
-            <For each={(() => {
-              // Parse content and highlight code blocks
-              const { highlightCodeBlock } = require("./skills/syntax");
-              return highlightCodeBlock(msg.content).split('\n');
-            })()}>
-              {(line, idx) => {
-                // Check for code blocks
-                if (line.startsWith('```')) {
-                  return <text fg={theme.accentGreen}>{line}</text>;
-                }
-                // Check for inline code
-                if (line.includes('`')) {
-                  const parts = line.split('`');
-                  return (
-                    <box flexDirection="row">
-                      <For each={parts}>
-                        {(part, pidx) => (
-                          <text fg={pidx() % 2 === 1 ? theme.accentYellow : theme.text}>{part}</text>
-                        )}
-                      </For>
-                    </box>
-                  );
-                }
-                // Regular line with bold support
-                const cleanLine = line.replace(/\*\*/g, '');
-                return <text fg={theme.text}>{cleanLine}</text>;
-              }}
-                  </For>
+              {/* Message content */}
+              <Show when={msg.role === "user"}>
+                <box flexDirection="row" marginBottom={1}>
+                  <box width={1} backgroundColor={agentColors()[currentMode() as keyof ReturnType<typeof agentColors>]} flexShrink={0} />
+                  <box flexDirection="column" flexGrow={1} backgroundColor={theme().element} padding={1}>
+                    <text fg={theme().text} wrapMode="word">{msg.content}</text>
+                  </box>
                 </box>
               </Show>
+
+            <Show when={msg.role === "assistant"}>
+              <box flexDirection="column" marginLeft={1}>
+                <Show when={msg.content}>
+                  <box flexDirection="column" marginBottom={1}>
+                    <text fg={theme().text} wrapMode="word">{msg.content}</text>
+                  </box>
+                </Show>
 
       <Show when={msg.attachments && msg.attachments.length > 0}>
         <box flexDirection="row">
           <For each={msg.attachments}>
             {(att) => (
-              <box flexDirection="row" marginRight={1} backgroundColor={theme.accentOrange} paddingLeft={1} paddingRight={1}>
-                <text fg={theme.text}>{att.label}</text>
+              <box flexDirection="row" marginRight={1} backgroundColor={theme().accentOrange} paddingLeft={1} paddingRight={1}>
+                <text fg={theme().text}>{att.label}</text>
               </box>
             )}
           </For>
 </box>
     </Show>
 
-{/* Thinking Block - only show when there's actual thinking with steps */}
-    <Show when={msg.work && msg.work.some(w => w.type === "thinking" && w.steps && w.steps.length > 0)}>
-      <box flexDirection="column" marginLeft={1} marginBottom={1}>
-        <box flexDirection="row" marginBottom={1}>
-          <text fg={theme.textMuted}>▼ </text>
-          <text fg={theme.textMuted}>Thinking</text>
-        </box>
-        <For each={msg.work?.filter(w => w.type === "thinking" && w.steps).flatMap(w => w.steps || [])}>
-          {(step) => (
-            <box flexDirection="row" marginLeft={2} marginBottom={0}>
-              <text fg={step.status === "complete" ? theme.accentGreen : step.status === "running" ? theme.accentOrange : theme.textMuted}>
-                {step.status === "complete" ? "✓ " : step.status === "running" ? "● " : "○ "}
-              </text>
-              <text fg={theme.textMuted}>{step.description}</text>
-            </box>
-          )}
-        </For>
-      </box>
-    </Show>
-
-{/* Work Items Block */}
-    <Show when={msg.work && msg.work.some(w => w.type === "edit" || w.type === "create" || w.type === "delete" || w.type === "command")}>
-      <box flexDirection="column" marginLeft={1} marginTop={1} backgroundColor={theme.element} padding={1}>
-        <text fg={theme.primary} marginBottom={1}><strong>Changes</strong></text>
-        <For each={msg.work?.filter(w => w.type === "edit" || w.type === "create" || w.type === "delete" || w.type === "command")}>
-          {(item) => (
-            <box flexDirection="column" marginBottom={1}>
-              <box flexDirection="row">
-                <text fg={item.type === "edit" ? theme.accentYellow : item.type === "create" ? theme.accentGreen : item.type === "delete" ? theme.accentRed : theme.accentBlue}>
-                  {item.type === "edit" ? "✎ " : item.type === "create" ? "+ " : item.type === "delete" ? "- " : "▶ "}
-                </text>
-                <Show when={item.file}>
-                  <text fg={theme.text}>{item.file}</text>
-                </Show>
-                <Show when={item.additions !== undefined && item.deletions !== undefined}>
-                  <text fg={theme.accentGreen}> +{String(item.additions)}</text>
-                  <text fg={theme.accentRed}> -{String(item.deletions)}</text>
-                </Show>
-              </box>
-              <Show when={item.description}>
-                <text fg={theme.textMuted} marginLeft={2}>{item.description}</text>
-              </Show>
-              <Show when={item.output}>
-                <box flexDirection="column" marginLeft={2} marginTop={1} backgroundColor={theme.background} padding={1}>
-                  <For each={item.output?.split('\n').slice(0, 5)}>
-                    {(line) => <text fg={theme.textDim}>{line}</text>}
+{/* Thinking Block - only show in verbose mode */}
+              <Show when={verboseMode() && msg.work && msg.work.some(w => w.type === "thinking" && w.steps && w.steps.length > 0)}>
+                <box flexDirection="column" marginLeft={1} marginBottom={1}>
+                  <box flexDirection="row" marginBottom={1}>
+                    <text fg={theme().textMuted}>▼ </text>
+                    <text fg={theme().textMuted}>Thinking</text>
+                  </box>
+                  <For each={msg.work?.filter(w => w.type === "thinking" && w.steps).flatMap(w => w.steps || [])}>
+                    {(step) => (
+                      <box flexDirection="row" marginLeft={2} marginBottom={0}>
+                        <text fg={step.status === "complete" ? theme().accentGreen : step.status === "running" ? theme().accentOrange : theme().textMuted}>
+                          {step.status === "complete" ? "✓ " : step.status === "running" ? "● " : "○ "}
+                        </text>
+                        <text fg={theme().textMuted}>{step.description}</text>
+                      </box>
+                    )}
                   </For>
-<Show when={item.output && item.output.split('\n').length > 5}>
-                  <text fg={theme.textMuted}>... ({String((item.output?.split('\n').length || 0) - 5)} more lines)</text>
-                </Show>
                 </box>
               </Show>
-            </box>
-          )}
-        </For>
-      </box>
-    </Show>
+
+              {/* Work Items Block - only show in verbose mode */}
+              <Show when={verboseMode() && msg.work && msg.work.some(w => w.type === "edit" || w.type === "create" || w.type === "delete" || w.type === "command")}>
+                <box flexDirection="column" marginLeft={1} marginTop={1} backgroundColor={theme().element} padding={1}>
+                  <text fg={theme().primary} marginBottom={1}><strong>Changes</strong></text>
+                  <For each={msg.work?.filter(w => w.type === "edit" || w.type === "create" || w.type === "delete" || w.type === "command")}>
+                    {(item) => (
+                      <box flexDirection="column" marginBottom={1}>
+                        <box flexDirection="row">
+                          <text fg={item.type === "edit" ? theme().accentYellow : item.type === "create" ? theme().accentGreen : item.type === "delete" ? theme().accentRed : theme().accentBlue}>
+                            {item.type === "edit" ? "✎ " : item.type === "create" ? "+ " : item.type === "delete" ? "- " : "▶ "}
+                          </text>
+                          <Show when={item.file}>
+                            <text fg={theme().text}>{item.file}</text>
+                          </Show>
+                          <Show when={item.additions !== undefined && item.deletions !== undefined}>
+                            <text fg={theme().accentGreen}> +{String(item.additions)}</text>
+                            <text fg={theme().accentRed}> -{String(item.deletions)}</text>
+                          </Show>
+                        </box>
+                        <Show when={item.description}>
+                          <text fg={theme().textMuted} marginLeft={2}>{item.description}</text>
+                        </Show>
+                        <Show when={item.output}>
+                          <box flexDirection="column" marginLeft={2} marginTop={1} backgroundColor={theme().background} padding={1}>
+                            <For each={item.output?.split('\n').slice(0, 5)}>
+                              {(line) => <text fg={theme().textDim}>{line}</text>}
+                            </For>
+                            <Show when={item.output && item.output.split('\n').length > 5}>
+                              <text fg={theme().textMuted}>... ({String((item.output?.split('\n').length || 0) - 5)} more lines)</text>
+                            </Show>
+                          </box>
+                        </Show>
+                      </box>
+                    )}
+                  </For>
+                </box>
+              </Show>
     </box>
     </Show>
 
 <Show when={msg.role === "system"}>
-      <text fg={theme.textMuted}>{msg.content}</text>
+      <text fg={theme().textMuted}>{msg.content}</text>
     </Show>
     </box>
   )}
@@ -3215,21 +3701,21 @@ const sidebarWidth = 38;
 </scrollbox>
 
       {/* Input area - Opencode style */}
-      <box flexDirection="column" backgroundColor={theme.background} flexShrink={0} paddingLeft={2} paddingRight={2}>
+      <box flexDirection="column" backgroundColor={theme().background} flexShrink={0} paddingLeft={2} paddingRight={2}>
         {/* Command suggestions dropdown - appears above input */}
         <Show when={showCommandSuggestions()}>
           <box
             flexDirection="column"
             width={chatWidth() - 6}
             maxHeight={8}
-            backgroundColor={theme.surface}
+            backgroundColor={theme().surface}
             paddingLeft={1}
             paddingRight={1}
             paddingTop={1}
             paddingBottom={1}
             marginBottom={1}
           >
-            <text fg={theme.primary} marginBottom={1}><strong>Commands</strong></text>
+            <text fg={theme().primary} marginBottom={1}><strong>Commands</strong></text>
             <For each={Object.entries(commands).filter(([cmd]) =>
               cmd.toLowerCase().startsWith("/" + commandFilter().toLowerCase())
             ).slice(0, 5)}>
@@ -3239,111 +3725,112 @@ const sidebarWidth = 38;
                   marginBottom={0}
                   paddingLeft={1}
                   paddingRight={1}
-                  backgroundColor={idx() === selectedCommandIndex() ? theme.element : theme.surface}
+                  backgroundColor={idx() === selectedCommandIndex() ? theme().element : theme().surface}
                 >
-                  <text fg={idx() === selectedCommandIndex() ? theme.accentYellow : theme.accentBlue}>{cmd}</text>
-                  <text fg={theme.textMuted} marginLeft={2}>{info.description.slice(0, 40)}</text>
+                  <text fg={idx() === selectedCommandIndex() ? theme().accentYellow : theme().accentBlue}>{cmd}</text>
+                  <text fg={theme().textMuted} marginLeft={2}>{info.description.slice(0, 40)}</text>
                 </box>
               )}
             </For>
-            <text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select</text>
+            <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select</text>
           </box>
         </Show>
 
-        {/* Grey input box with colored left border - minimal gap */}
-        <box flexDirection="row">
-          {/* Thin colored left border */}
-          <box width={1} backgroundColor={agentColors[currentMode()]} flexShrink={0} />
-          {/* Grey box - no margin, flush with border */}
-          <box flexDirection="column" flexGrow={1} backgroundColor={theme.element}>
-{/* Input field - completely removed when overlay is open */}
-        <Show when={activeOverlay() === "none"}>
-          <box flexDirection="column" padding={1}>
-            <input
-              placeholder={isProcessing() ? "Remi is thinking..." : "Type a message..."}
-              value={input()}
-              onInput={setInput}
-              onSubmit={handleSubmit}
-              backgroundColor={theme.element}
-              flexGrow={1}
-            />
-          </box>
-        </Show>
-        <Show when={activeOverlay() !== "none"}>
-          <box flexDirection="column" padding={1}>
-            <text fg={theme.textDim}>
-              {activeOverlay() === "model" ? "Use picker above..." :
-               activeOverlay() === "mode" ? "Select a mode..." :
-               activeOverlay() === "session" ? "Select a session..." :
-               activeOverlay() === "file" ? "Select a file..." :
-               activeOverlay() === "apikey" ? "Enter API key..." :
-               "..."}
-            </text>
-          </box>
-        </Show>
-{/* Agent info at bottom left */}
-        <box flexDirection="row" paddingLeft={1} paddingBottom={1}>
-          <text fg={agentColors[currentMode()]}>Remi-V2 </text>
-          <text fg={theme.text}>
-            {aiModels.find(m => m.id === currentModel())?.name || currentModel()}
-          </text>
-          <text fg={theme.textMuted}> {aiModels.find(m => m.id === currentModel())?.provider || 'Nvidia'}</text>
-        </box>
-          </box>
-        </box>
+{/* Grey input box with colored left border - minimal gap */}
+            <box flexDirection="row">
+              {/* Thin colored left border */}
+              <box width={1} backgroundColor={agentColors()[currentMode() as keyof ReturnType<typeof agentColors>]} flexShrink={0} />
+              {/* Grey box - no margin, flush with border */}
+              <box flexDirection="column" flexGrow={1} backgroundColor={theme().element}>
+                {/* Input field - completely removed when overlay is open */}
+                <Show when={activeOverlay() === "none"}>
+                  <WrappedInput
+                    value={input()}
+                    onInput={setInput}
+                    onSubmit={handleSubmit}
+                    placeholder={isProcessing() ? "Remi is thinking..." : "Type a message..."}
+                    maxWidth={Math.max(chatWidth() - 12, 50)}
+                    backgroundColor={theme().element}
+                    textColor={theme().text}
+                    cursorColor={theme().primary}
+                  />
+                </Show>
+                <Show when={activeOverlay() !== "none"}>
+                  <box flexDirection="column" padding={1}>
+                    <text fg={theme().textDim}>
+                      {activeOverlay() === "model" ? "Use picker above..." :
+                       activeOverlay() === "mode" ? "Select a mode..." :
+                       activeOverlay() === "session" ? "Select a session..." :
+                       activeOverlay() === "file" ? "Select a file..." :
+                       activeOverlay() === "apikey" ? "Enter API key..." :
+                       activeOverlay() === "theme" ? "Select a theme..." :
+                       "..."}
+                    </text>
+                  </box>
+                </Show>
+                {/* Agent info at bottom left */}
+                <box flexDirection="row" paddingLeft={1} paddingBottom={1}>
+                  <text fg={agentColors()[currentMode() as keyof ReturnType<typeof agentColors>]}>Remi-V2 </text>
+                  <text fg={theme().text}>
+                    {aiModels.find(m => m.id === currentModel())?.name || currentModel()}
+                  </text>
+                  <text fg={theme().textMuted}> {aiModels.find(m => m.id === currentModel())?.provider || 'Nvidia'}</text>
+                </box>
+              </box>
+            </box>
 
         {/* Bottom bar - thinking left, shortcuts right */}
         <box flexDirection="row" justifyContent="space-between" paddingTop={1} paddingBottom={1}>
           {/* Left: Thinking indicator with animated dots */}
           <Show when={isProcessing()}>
             <box flexDirection="row">
-              <text fg={theme.accentOrange}>○</text>
-              <text fg={theme.textMuted} marginLeft={1}>Thinking{thinkingDots()}</text>
-              <text fg={theme.textMuted} marginLeft={2}>esc</text>
-              <text fg={theme.textMuted} marginLeft={1}>interrupt</text>
+              <text fg={theme().accentOrange}>○</text>
+              <text fg={theme().textMuted} marginLeft={1}>Thinking{thinkingDots()}</text>
+              <text fg={theme().textMuted} marginLeft={2}>esc</text>
+              <text fg={theme().textMuted} marginLeft={1}>interrupt</text>
             </box>
           </Show>
           <Show when={!isProcessing()}>
             <box flexDirection="row">
-              <text fg={theme.textMuted}>Ready</text>
+              <text fg={theme().textMuted}>Ready</text>
             </box>
           </Show>
           
           {/* Right: Shortcuts */}
           <box flexDirection="row">
-            <text fg={isProcessing() ? theme.textDim : theme.primary}>tab</text>
-            <text fg={theme.textMuted}> agents </text>
-            <text fg={isProcessing() ? theme.textDim : theme.primary}>ctrl+p</text>
-            <text fg={theme.textMuted}> commands</text>
+            <text fg={isProcessing() ? theme().textDim : theme().primary}>tab</text>
+            <text fg={theme().textMuted}> agents </text>
+            <text fg={isProcessing() ? theme().textDim : theme().primary}>ctrl+p</text>
+            <text fg={theme().textMuted}> commands</text>
           </box>
         </box>
       </box>
     </box>
 
 {/* Right: Sidebar */}
-      <box flexDirection="column" width={sidebarWidth} padding={1} paddingTop={0} backgroundColor={theme.background}>
+      <box flexDirection="column" width={sidebarWidth} padding={1} paddingTop={0} backgroundColor={theme().background}>
         {/* Page Tabs */}
         <box flexDirection="row" marginBottom={1}>
           <box 
             flexDirection="row" 
             paddingLeft={1} 
             paddingRight={1} 
-            backgroundColor={sidebarPage() === "info" ? theme.element : theme.background}
+            backgroundColor={sidebarPage() === "info" ? theme().element : theme().background}
             borderStyle={sidebarPage() === "info" ? "single" : undefined}
-            borderColor={sidebarPage() === "info" ? theme.primary : undefined}
+            borderColor={sidebarPage() === "info" ? theme().primary : undefined}
           >
-            <text fg={sidebarPage() === "info" ? theme.primary : theme.textMuted}>Info</text>
+            <text fg={sidebarPage() === "info" ? theme().primary : theme().textMuted}>Info</text>
           </box>
           <box 
             flexDirection="row" 
             paddingLeft={1} 
             paddingRight={1} 
             marginLeft={1}
-            backgroundColor={sidebarPage() === "files" ? theme.element : theme.background}
+            backgroundColor={sidebarPage() === "files" ? theme().element : theme().background}
             borderStyle={sidebarPage() === "files" ? "single" : undefined}
-            borderColor={sidebarPage() === "files" ? theme.primary : undefined}
+            borderColor={sidebarPage() === "files" ? theme().primary : undefined}
           >
-            <text fg={sidebarPage() === "files" ? theme.primary : theme.textMuted}>Files</text>
+            <text fg={sidebarPage() === "files" ? theme().primary : theme().textMuted}>Files</text>
           </box>
         </box>
 
@@ -3351,118 +3838,164 @@ const sidebarWidth = 38;
         <Show when={sidebarPage() === "info"}>
           <box flexDirection="column" flexGrow={1}>
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.text}><strong>{sessionTitle()}</strong></text>
+              <text fg={theme().text}><strong>{sessionTitle()}</strong></text>
             </box>
 
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.text}><strong>Context</strong></text>
-              <text fg={theme.textMuted}>{contextTokens().toLocaleString()} tokens</text>
-              <text fg={contextPercent() >= 95 ? theme.accentRed : contextPercent() >= 80 ? theme.accentYellow : theme.textMuted}>{contextPercent()}% used</text>
-              <text fg={theme.textMuted}>${cost().toFixed(2)} spent</text>
+              <text fg={theme().text}><strong>Context</strong></text>
+              <text fg={theme().textMuted}>{contextTokens().toLocaleString()} tokens</text>
+              <text fg={contextPercent() >= 95 ? theme().accentRed : contextPercent() >= 80 ? theme().accentYellow : theme().textMuted}>{contextPercent()}% used</text>
+              <text fg={theme().textMuted}>${cost().toFixed(2)} spent</text>
               <Show when={contextPercent() >= 80}>
-                <text fg={contextPercent() >= 95 ? theme.accentRed : theme.accentYellow}>⚠️ Use /prune or /compress</text>
+                <text fg={contextPercent() >= 95 ? theme().accentRed : theme().accentYellow}>⚠️ Use /prune or /compress</text>
               </Show>
             </box>
 
-            <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.text}><strong>LSP</strong></text>
-              <box flexDirection="row">
-                <text fg={theme.accentGreen}>• </text>
-                <text fg={theme.textMuted}>typescript Downloads/wzrd-tui</text>
-              </box>
-            </box>
+      <box flexDirection="column" marginBottom={1}>
+        <text fg={theme().text}><strong>LSP</strong></text>
+        <box flexDirection="row">
+          <text fg={theme().accentGreen}>• </text>
+          <text fg={theme().textMuted}>typescript Downloads/wzrd-tui</text>
+        </box>
+      </box>
 
-            <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.primary}><strong>Agent Modes</strong></text>
-              <For each={agentModes}>
+      {/* WebSocket Connection Status */}
+      <box flexDirection="column" marginBottom={1}>
+        <text fg={theme().primary}><strong>WebSocket</strong></text>
+        <Show when={wsConnected()}>
+          <box flexDirection="row">
+            <text fg={theme().accentGreen}>● </text>
+            <text fg={theme().accentGreen}>Connected</text>
+          </box>
+          <text fg={theme().textMuted}>100.118.174.102</text>
+        </Show>
+        <Show when={!wsConnected()}>
+          <box flexDirection="row">
+            <text fg={theme().accentRed}>● </text>
+            <text fg={theme().accentRed}>Disconnected</text>
+          </box>
+          <text fg={theme().textMuted}>{wsStatus()}</text>
+        </Show>
+      </box>
+
+<box flexDirection="column" marginBottom={1}>
+              <text fg={theme().primary}><strong>Agent Modes</strong></text>
+              <For each={agentModes()}>
                 {(mode) => (
                   <box flexDirection="row" alignItems="center" marginBottom={0}>
                     <box width={2} height={1} backgroundColor={mode.color} marginRight={1} />
-                    <text fg={currentMode() === mode.id ? theme.text : theme.textMuted}>{mode.name}</text>
+                    <text fg={currentMode() === mode.id ? theme().text : theme().textMuted}>{mode.name}</text>
                   </box>
                 )}
               </For>
             </box>
 
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.primary}><strong>Models</strong></text>
+              <text fg={theme().primary}><strong>Models</strong></text>
               <For each={aiModels}>
                 {(model) => (
                   <box flexDirection="row" alignItems="center" marginBottom={0}>
                     <box width={2} height={1} backgroundColor={model.color} marginRight={1} />
-                    <text fg={currentModel() === model.id ? theme.text : theme.textMuted}>{model.name}</text>
-                    <text fg={theme.textDim} marginLeft={1}>{model.provider}</text>
+                    <text fg={currentModel() === model.id ? theme().text : theme().textMuted}>{model.name}</text>
+                    <text fg={theme().textDim} marginLeft={1}>{model.provider}</text>
                   </box>
                 )}
               </For>
             </box>
 
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.primary}><strong>Skills</strong></text>
-              <For each={skills}>
+              <text fg={theme().primary}><strong>Skills</strong></text>
+              <For each={skills()}>
                 {(skill) => (
                   <box flexDirection="row" alignItems="center" marginBottom={0}>
                     <box width={2} height={1} backgroundColor={skill.color} marginRight={1} />
-                    <text fg={theme.textMuted}>{skill.name}</text>
+                    <text fg={theme().textMuted}>{skill.name}</text>
                   </box>
                 )}
               </For>
             </box>
 
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.primary}><strong>Attached</strong></text>
+              <text fg={theme().primary}><strong>Attached</strong></text>
               <Show when={attachedFiles().length > 0}>
                 <For each={attachedFiles()}>
                   {(file) => (
                     <box flexDirection="row">
-                      <text fg={theme.accentBlue}>• </text>
-                      <text fg={theme.textMuted}>{file.path} ({(file.size / 1024).toFixed(1)}KB)</text>
+                      <text fg={theme().accentBlue}>• </text>
+                      <text fg={theme().textMuted}>{file.path} ({(file.size / 1024).toFixed(1)}KB)</text>
                     </box>
                   )}
                 </For>
               </Show>
               <Show when={attachedFiles().length === 0}>
-                <text fg={theme.textDim}>Type /attach to add files</text>
+                <text fg={theme().textDim}>Type /attach to add files</text>
               </Show>
             </box>
 
             <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.primary}><strong>NIM API</strong></text>
+              <text fg={theme().primary}><strong>NIM API</strong></text>
               <Show when={nimConnected()}>
-                <text fg={theme.accentGreen}>Connected</text>
+                <text fg={theme().accentGreen}>Connected</text>
               </Show>
               <Show when={!nimConnected()}>
-                <text fg={theme.textMuted}>{nimStatusMessage()}</text>
+                <text fg={theme().textMuted}>{nimStatusMessage()}</text>
               </Show>
             </box>
 
             <box flexDirection="column">
-              <text fg={theme.primary}><strong>Getting Started</strong></text>
-              <text fg={theme.textMuted}>Type /help for commands</text>
-              <text fg={theme.textMuted}>Press Tab to switch modes</text>
+              <text fg={theme().primary}><strong>Getting Started</strong></text>
+              <text fg={theme().textMuted}>Type /help for commands</text>
+              <text fg={theme().textMuted}>Press Tab to switch modes</text>
             </box>
           </box>
         </Show>
 
-        {/* Files Page */}
-        <Show when={sidebarPage() === "files"}>
-          <box flexDirection="column" flexGrow={1}>
-            <box flexDirection="column" marginBottom={1}>
-              <text fg={theme.text}><strong>Project Files</strong></text>
-            </box>
-            
-            <box flexDirection="column" flexGrow={1}>
-              <Show when={fileTree()}>
-                <scrollbox flexGrow={1}>
-                  <text fg={theme.textMuted}>{fileTree()}</text>
-                </scrollbox>
-              </Show>
-              <Show when={!fileTree()}>
-                <text fg={theme.textDim}>Type /files to load</text>
-              </Show>
-            </box>
+{/* Files Page */}
+      <Show when={sidebarPage() === "files"}>
+        <box flexDirection="column" flexGrow={1}>
+          <box flexDirection="column" marginBottom={1}>
+            <text fg={theme().text}><strong>Files</strong></text>
+            <text fg={theme().textDim}>{fileBrowserPath()}</text>
           </box>
-        </Show>
+          
+          <box flexDirection="column" flexGrow={1}>
+            <Show when={fileBrowserLoaded()}>
+              <scrollbox 
+                flexGrow={1}
+                stickyScroll={true}
+                stickyStart="top"
+              >
+                <For each={fileBrowserEntries()}>
+                  {(entry, idx) => (
+                    <box 
+                      flexDirection="row" 
+                      paddingLeft={entry.depth + 1}
+                      backgroundColor={idx() === browserSelectedIndex() ? theme().element : theme().background}
+                    >
+                      <text fg={entry.isDirectory ? theme().accentYellow : theme().textMuted}>
+                        {entry.isDirectory ? (expandedDirs().has(entry.path) ? "▼ " : "▶ ") : "  "}
+                      </text>
+                      <text fg={idx() === browserSelectedIndex() ? theme().primary : theme().textMuted}>
+                        {entry.name.length > 25 ? entry.name.slice(0, 22) + "..." : entry.name}
+                      </text>
+                      <Show when={entry.isDirectory}>
+                        <text fg={theme().textDim}>/</text>
+                      </Show>
+                    </box>
+                  )}
+                </For>
+              </scrollbox>
+            </Show>
+            <Show when={!fileBrowserLoaded()}>
+              <text fg={theme().textDim}>Type /files to load</text>
+            </Show>
+          </box>
+          
+          <box flexDirection="column" marginTop={1}>
+            <text fg={theme().textDim}>↑↓ navigate · Enter/Space</text>
+          </box>
+        </box>
+      </Show>
       </box>
       </box>
 
@@ -3474,21 +4007,21 @@ const sidebarWidth = 38;
           top={10}
           left={10}
           width={60}
-          backgroundColor={theme.element}
+          backgroundColor={theme().element}
           padding={2}
           borderStyle="single"
-          borderColor={theme.border}
+          borderColor={theme().border}
         >
-          <text fg={theme.primary} marginBottom={1}><strong>Commands</strong></text>
+          <text fg={theme().primary} marginBottom={1}><strong>Commands</strong></text>
           <For each={Object.entries(commands)}>
             {([cmd, info]) => (
               <box flexDirection="row" marginBottom={0.5}>
-                <text fg={theme.accentBlue}>{cmd.padEnd(12)}</text>
-                <text fg={theme.textMuted}>{info.description}</text>
+                <text fg={theme().accentBlue}>{cmd.padEnd(12)}</text>
+                <text fg={theme().textMuted}>{info.description}</text>
               </box>
             )}
           </For>
-          <text fg={theme.textDim} marginTop={1}>Press Ctrl+P to close</text>
+          <text fg={theme().textDim} marginTop={1}>Press Ctrl+P to close</text>
         </box>
       </Show>
 
@@ -3507,26 +4040,26 @@ const sidebarWidth = 38;
         <box
           flexDirection="column"
           width={50}
-          backgroundColor={theme.surface}
+          backgroundColor={theme().surface}
           padding={2}
           borderStyle="single"
-          borderColor={theme.border}
+          borderColor={theme().border}
         >
           <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-            <text fg={theme.primary}><strong>Select model</strong></text>
-            <text fg={theme.textDim}>esc</text>
+            <text fg={theme().primary}><strong>Select model</strong></text>
+            <text fg={theme().textDim}>esc</text>
           </box>
 
 {/* Search - shows current filter */}
         <box flexDirection="row" marginBottom={1}>
-          <text fg={theme.accentYellow}>Search: </text>
-          <text fg={theme.text}>{modelPickerFilter() || "_"}</text>
+          <text fg={theme().accentYellow}>Search: </text>
+          <text fg={theme().text}>{modelPickerFilter() || "_"}</text>
         </box>
 
           {/* Recent section */}
-          <text fg={theme.accentPurple} marginBottom={1}><strong>Recent</strong></text>
-          <box flexDirection="row" marginBottom={1} backgroundColor={currentModel() === "kimi-k2.5" ? theme.element : theme.surface}>
-            <text fg={currentModel() === "kimi-k2.5" ? theme.accentYellow : theme.text}>● Kimi K2.5 Nvidia</text>
+          <text fg={theme().accentPurple} marginBottom={1}><strong>Recent</strong></text>
+          <box flexDirection="row" marginBottom={1} backgroundColor={currentModel() === "kimi-k2.5" ? theme().element : theme().surface}>
+            <text fg={currentModel() === "kimi-k2.5" ? theme().accentYellow : theme().text}>● Kimi K2.5 Nvidia</text>
           </box>
 
 {/* All models grouped by provider - with scrolling */}
@@ -3544,47 +4077,47 @@ const sidebarWidth = 38;
             const visibleEnd = scrollOffset + maxVisibleModels;
             const visibleModels = filteredModels.slice(visibleStart, visibleEnd);
             
-            return (
-              <For each={providers}>
-                {(provider) => {
-                  const providerModels = visibleModels.filter(m => m.provider === provider.id);
-                  if (providerModels.length === 0) return null;
-                  
-                  return (
-                    <>
-                      <text fg={provider.color} marginTop={1} marginBottom={1}><strong>{provider.name}</strong></text>
-                      <For each={providerModels}>
-                        {(model) => {
-                          const filteredIdx = filteredModels.findIndex(m => m.id === model.id);
-                const pricing = modelPricing[model.id];
-                const costText = pricing?.free
-                  ? "FREE"
-                  : pricing?.subscription
-                    ? "SUBSCRIPTION"
-                    : `$${pricing?.input || 0}/${pricing?.output || 0} per 1M`;
-                const costColor = pricing?.free
-                  ? theme.accentGreen
-                  : pricing?.subscription
-                    ? theme.accentBlue
-                    : theme.textMuted;
-                return (
-                  <box
-                    flexDirection="row"
-                    marginBottom={0}
-                    paddingLeft={1}
-                    backgroundColor={filteredIdx === selectedModelIndex() ? theme.element : theme.surface}
-                  >
-                    <text fg={filteredIdx === selectedModelIndex() ? theme.accentYellow : theme.text}>{model.name}</text>
-                    <text fg={costColor} marginLeft={1}>{costText}</text>
-                  </box>
-                );
+return (
+                      <For each={providers()}>
+                        {(provider) => {
+                          const providerModels = visibleModels.filter(m => m.provider === provider.id);
+                          if (providerModels.length === 0) return null;
+
+                          return (
+                            <>
+                              <text fg={provider.color} marginTop={1} marginBottom={1}><strong>{provider.name}</strong></text>
+                              <For each={providerModels}>
+                                {(model) => {
+                                  const filteredIdx = filteredModels.findIndex(m => m.id === model.id);
+                                  const pricing = modelPricing[model.id];
+                                  const costText = pricing?.free
+                                    ? "FREE"
+                                    : pricing?.subscription
+                                    ? "SUBSCRIPTION"
+                                    : `$${pricing?.input || 0}/${pricing?.output || 0} per 1M`;
+                                  const costColor = pricing?.free
+                                    ? theme().accentGreen
+                                    : pricing?.subscription
+                                    ? theme().accentBlue
+                                    : theme().textMuted;
+                                  return (
+                                    <box
+                                      flexDirection="row"
+                                      marginBottom={0}
+                                      paddingLeft={1}
+                                      backgroundColor={filteredIdx === selectedModelIndex() ? theme().element : theme().surface}
+                                    >
+                                      <text fg={filteredIdx === selectedModelIndex() ? theme().accentYellow : theme().text}>{model.name}</text>
+                                      <text fg={costColor} marginLeft={1}>{costText}</text>
+                                    </box>
+                                  );
+                                }}
+                              </For>
+                            </>
+                          );
                         }}
                       </For>
-                    </>
-                  );
-                }}
-              </For>
-            );
+                    );
             })()}
             </box>
 
@@ -3597,14 +4130,14 @@ const sidebarWidth = 38;
               const totalFiltered = filteredModels.length;
               return (
                 <Show when={totalFiltered > maxVisibleModels}>
-                  <text fg={theme.textDim} marginTop={1}>
+                  <text fg={theme().textDim} marginTop={1}>
                     {modelPickerScrollOffset() + 1}-{Math.min(modelPickerScrollOffset() + maxVisibleModels, totalFiltered)} of {totalFiltered} (filtered)
                   </text>
                 </Show>
               );
             })()}
 
-<text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select · ctrl+a providers</text>
+<text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select · ctrl+a providers</text>
         </box>
       </box>
     </Show>
@@ -3617,14 +4150,14 @@ const sidebarWidth = 38;
         top={pickerTop()}
         left={pickerLeft()}
         width={50}
-        backgroundColor={theme.surface}
+        backgroundColor={theme().surface}
         padding={2}
         borderStyle="single"
-        borderColor={theme.border}
+        borderColor={theme().border}
       >
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <text fg={theme.primary}><strong>Select provider</strong></text>
-          <text fg={theme.textDim}>esc</text>
+          <text fg={theme().primary}><strong>Select provider</strong></text>
+          <text fg={theme().textDim}>esc</text>
         </box>
 
         <For each={Object.values(aiProviders)}>
@@ -3636,17 +4169,17 @@ const sidebarWidth = 38;
                 flexDirection="row"
                 marginBottom={0}
                 paddingLeft={1}
-                backgroundColor={idx() === selectedProviderIndex() ? theme.element : theme.surface}
+                backgroundColor={idx() === selectedProviderIndex() ? theme().element : theme().surface}
               >
-                <text fg={idx() === selectedProviderIndex() ? theme.accentYellow : theme.text}>{provider.name}</text>
-                <text fg={hasKey ? theme.accentGreen : theme.accentRed} marginLeft={1}>{hasKey ? "✓" : "✗"}</text>
-                <text fg={theme.textMuted} marginLeft={1}>{hasKey ? "Ready" : "Needs key"}</text>
+                <text fg={idx() === selectedProviderIndex() ? theme().accentYellow : theme().text}>{provider.name}</text>
+                <text fg={hasKey ? theme().accentGreen : theme().accentRed} marginLeft={1}>{hasKey ? "✓" : "✗"}</text>
+                <text fg={theme().textMuted} marginLeft={1}>{hasKey ? "Ready" : "Needs key"}</text>
               </box>
             );
           }}
         </For>
 
-        <text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select · esc back</text>
+        <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select · esc back</text>
       </box>
     </Show>
 
@@ -3658,31 +4191,31 @@ const sidebarWidth = 38;
         top={pickerTop()}
         left={pickerLeft()}
         width={40}
-        backgroundColor={theme.surface}
+        backgroundColor={theme().surface}
         padding={2}
         borderStyle="single"
-        borderColor={theme.border}
+        borderColor={theme().border}
       >
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <text fg={theme.primary}><strong>Select mode</strong></text>
-          <text fg={theme.textDim}>esc</text>
+          <text fg={theme().primary}><strong>Select mode</strong></text>
+          <text fg={theme().textDim}>esc</text>
         </box>
 
-        <For each={agentModes}>
-          {(mode, idx) => (
-            <box
-              flexDirection="row"
-              marginBottom={0}
-              paddingLeft={1}
-              backgroundColor={idx() === selectedModeIndex() ? theme.element : theme.surface}
-            >
-              <box width={2} height={1} backgroundColor={mode.color} marginRight={1} />
-              <text fg={idx() === selectedModeIndex() ? theme.accentYellow : theme.text}>{mode.name}</text>
-            </box>
-          )}
-        </For>
+<For each={agentModes()}>
+                {(mode, idx) => (
+                  <box
+                    flexDirection="row"
+                    marginBottom={0}
+                    paddingLeft={1}
+                    backgroundColor={idx() === selectedModeIndex() ? theme().element : theme().surface}
+                  >
+                    <box width={2} height={1} backgroundColor={mode.color} marginRight={1} />
+                    <text fg={idx() === selectedModeIndex() ? theme().accentYellow : theme().text}>{mode.name}</text>
+                  </box>
+                )}
+              </For>
 
-        <text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select</text>
+        <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select</text>
       </box>
     </Show>
 
@@ -3695,14 +4228,14 @@ const sidebarWidth = 38;
         left={pickerLeft()}
         width={60}
         maxHeight={15}
-        backgroundColor={theme.surface}
+        backgroundColor={theme().surface}
         padding={2}
         borderStyle="single"
-        borderColor={theme.border}
+        borderColor={theme().border}
       >
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <text fg={theme.primary}><strong>Select session</strong></text>
-          <text fg={theme.textDim}>esc</text>
+          <text fg={theme().primary}><strong>Select session</strong></text>
+          <text fg={theme().textDim}>esc</text>
         </box>
 
         <For each={availableSessions()}>
@@ -3711,15 +4244,15 @@ const sidebarWidth = 38;
               flexDirection="row"
               marginBottom={0}
               paddingLeft={1}
-              backgroundColor={idx() === selectedSessionIndex() ? theme.element : theme.surface}
+              backgroundColor={idx() === selectedSessionIndex() ? theme().element : theme().surface}
             >
-              <text fg={idx() === selectedSessionIndex() ? theme.accentYellow : theme.text}>{session.title}</text>
-              <text fg={theme.textMuted} marginLeft={1}>({new Date(session.updatedAt).toLocaleDateString()})</text>
+              <text fg={idx() === selectedSessionIndex() ? theme().accentYellow : theme().text}>{session.title}</text>
+              <text fg={theme().textMuted} marginLeft={1}>({new Date(session.updatedAt).toLocaleDateString()})</text>
             </box>
           )}
         </For>
 
-        <text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select</text>
+        <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select</text>
       </box>
     </Show>
 
@@ -3732,14 +4265,14 @@ const sidebarWidth = 38;
         left={pickerLeft()}
         width={60}
         maxHeight={20}
-        backgroundColor={theme.surface}
+        backgroundColor={theme().surface}
         padding={2}
         borderStyle="single"
-        borderColor={theme.border}
+        borderColor={theme().border}
       >
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <text fg={theme.primary}><strong>Select file</strong></text>
-          <text fg={theme.textDim}>esc</text>
+          <text fg={theme().primary}><strong>Select file</strong></text>
+          <text fg={theme().textDim}>esc</text>
         </box>
 
         <For each={availableFiles()}>
@@ -3748,14 +4281,14 @@ const sidebarWidth = 38;
               flexDirection="row"
               marginBottom={0}
               paddingLeft={1}
-              backgroundColor={idx() === selectedFileIndex() ? theme.element : theme.surface}
+              backgroundColor={idx() === selectedFileIndex() ? theme().element : theme().surface}
             >
-              <text fg={idx() === selectedFileIndex() ? theme.accentYellow : theme.text}>{file}</text>
+              <text fg={idx() === selectedFileIndex() ? theme().accentYellow : theme().text}>{file}</text>
             </box>
           )}
         </For>
 
-        <text fg={theme.textDim} marginTop={1}>↑↓ navigate · Enter select</text>
+        <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select</text>
       </box>
     </Show>
 
@@ -3767,36 +4300,77 @@ const sidebarWidth = 38;
         top={pickerTop()}
         left={pickerLeft()}
         width={60}
-        backgroundColor={theme.surface}
+        backgroundColor={theme().surface}
         padding={2}
         borderStyle="single"
-        borderColor={theme.border}
+        borderColor={theme().border}
       >
         <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
-          <text fg={theme.primary}><strong>Enter API Key</strong></text>
-          <text fg={theme.textDim}>esc</text>
+          <text fg={theme().primary}><strong>Enter API Key</strong></text>
+          <text fg={theme().textDim}>esc</text>
         </box>
         
-        <text fg={theme.textMuted} marginBottom={1}>
+        <text fg={theme().textMuted} marginBottom={1}>
           {aiProviders[apiKeyProvider() as keyof typeof aiProviders]?.name || apiKeyProvider()} requires an API key
         </text>
         
-        <box flexDirection="column" backgroundColor={theme.element} padding={1} marginBottom={1}>
+        <box flexDirection="column" backgroundColor={theme().element} padding={1} marginBottom={1}>
           <input
             placeholder="Paste your API key here..."
             value={apiKeyInput()}
             onInput={setApiKeyInput}
             onSubmit={() => {}}
-            backgroundColor={theme.element}
+            backgroundColor={theme().element}
             flexGrow={1}
           />
         </box>
         
-        <text fg={theme.textDim}>Press Enter to save · Escape to cancel</text>
+<text fg={theme().textDim}>Press Enter to save · Escape to cancel</text>
       </box>
     </Show>
 
-</box>
+    {/* Theme picker overlay */}
+    <Show when={showThemePicker()}>
+      <box
+        flexDirection="column"
+        position="absolute"
+        top={pickerTop()}
+        left={pickerLeft()}
+        width={40}
+        backgroundColor={theme().surface}
+        padding={2}
+        borderStyle="single"
+        borderColor={theme().border}
+      >
+        <box flexDirection="row" justifyContent="space-between" marginBottom={1}>
+          <text fg={theme().primary}><strong>Select theme</strong></text>
+          <text fg={theme().textDim}>esc</text>
+        </box>
+
+        <box
+          flexDirection="row"
+          marginBottom={0}
+          paddingLeft={1}
+          backgroundColor={selectedThemeIndex() === 0 ? theme().element : theme().surface}
+        >
+          <text fg={selectedThemeIndex() === 0 ? theme().accentYellow : theme().text}>Dark</text>
+          <text fg={theme().textMuted} marginLeft={1}>(default)</text>
+        </box>
+
+        <box
+          flexDirection="row"
+          marginBottom={0}
+          paddingLeft={1}
+          backgroundColor={selectedThemeIndex() === 1 ? theme().element : theme().surface}
+        >
+          <text fg={selectedThemeIndex() === 1 ? theme().accentYellow : theme().text}>Light</text>
+        </box>
+
+        <text fg={theme().textDim} marginTop={1}>↑↓ navigate · Enter select</text>
+      </box>
+    </Show>
+
+  </box>
   );
 }
 
